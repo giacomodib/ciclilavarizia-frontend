@@ -1,1 +1,11 @@
-<p>products-grid works!</p>
+<div class="bg-gray-100 p-6 h-full">
+    <h1 class="text-2xl font-bold text-gray-900 mb-6">{{categorySignal() || 'All Products'}}</h1>
+    <div class="responsive-grid">
+        @for (product of products(); track product.productId) {
+        <app-product-card [product]="product"></app-product-card> 
+        <!-- (AddToCartClicked)="addToCart($event)" -->
+        }
+    </div>
+
+
+</div>
