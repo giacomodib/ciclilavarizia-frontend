@@ -1,4 +1,13 @@
-import { Component, input, effect, untracked, computed, OnInit, inject, signal } from '@angular/core';
+import {
+    Component,
+    input,
+    effect,
+    untracked,
+    computed,
+    OnInit,
+    inject,
+    signal,
+} from '@angular/core';
 import { CategoryGroup, Category, ProductListItemDto } from '../../shared/models/product.model';
 import { CommonModule } from '@angular/common';
 import { MatSidenavModule } from '@angular/material/sidenav';
@@ -6,6 +15,7 @@ import { MatListModule } from '@angular/material/list';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { Paginator, PaginatorState } from '../../shared/components/paginator/paginator';
 import { ProductCard } from '../../shared/components/product-card/product-card';
 import { ProductService } from '../../shared/services/product';
 import { RouterLink } from '@angular/router';
@@ -21,7 +31,8 @@ import { RouterLink } from '@angular/router';
         MatIconModule,
         MatProgressSpinnerModule,
         RouterLink,
-        ProductCard
+        ProductCard,
+        Paginator,
     ],
     templateUrl: './products-grid.html',
     styleUrl: './products-grid.scss',
@@ -29,26 +40,25 @@ import { RouterLink } from '@angular/router';
 // default for lazy loading (check app.routes.ts)
 export default class ProductsGrid implements OnInit {
     private productService = inject(ProductService);
-    private readonly PAGE_SIZE = 30;
     category = input<string>();
     categoryValue = computed(() => this.category() || 'all');
     currentCategoryName = computed(() => {
         const val = this.categoryValue();
         const list = this.allCategories();
         if (val === 'all') return 'All Products';
-        
+
         if (!isNaN(Number(val))) {
-            const found = list.find(c => c.categoryId.toString() === val);
-            return found ? found.name : val; 
+            const found = list.find((c) => c.categoryId.toString() === val);
+            return found ? found.name : val;
         }
-        return val; 
+        return val;
     });
 
     products = signal<ProductListItemDto[]>([]);
-    allCategories = signal<Category[]>([]);     
-    categoryGroups = signal<CategoryGroup[]>([]); 
-    
-    totalItems = signal(0); 
+    allCategories = signal<Category[]>([]);
+    categoryGroups = signal<CategoryGroup[]>([]);
+    pageSize = signal(16);
+    totalItems = signal(0);
     currentPage = signal(1);
     isLoading = signal(true);
 
@@ -75,7 +85,7 @@ export default class ProductsGrid implements OnInit {
                 this.categoryGroups.set(this.groupCategoriesByParent(categories));
                 this.loadProducts();
             },
-            error: (err) => console.error(err)
+            error: (err) => console.error(err),
         });
     }
 
@@ -86,25 +96,27 @@ export default class ProductsGrid implements OnInit {
         const categoryId = isNumeric ? urlValue : undefined;
         const parentCategory = !isNumeric && urlValue !== 'all' ? urlValue : undefined;
 
-        this.productService.getProducts(
-            this.currentPage(),
-            this.PAGE_SIZE,
-            '', 
-            categoryId,
-            parentCategory,
-            'name'
-        ).subscribe({
-            next: (res) => {
-                this.products.set(res.items);
-                this.totalItems.set(res.totalCount); 
-                this.isLoading.set(false);
-            },
-            error: () => {
-                this.products.set([]);
-                this.totalItems.set(0);
-                this.isLoading.set(false);
-            }
-        });
+        this.productService
+            .getProducts(
+                this.currentPage(),
+                this.pageSize(),
+                '',
+                categoryId,
+                parentCategory,
+                'name'
+            )
+            .subscribe({
+                next: (res) => {
+                    this.products.set(res.items);
+                    this.totalItems.set(res.totalCount);
+                    this.isLoading.set(false);
+                },
+                error: () => {
+                    this.products.set([]);
+                    this.totalItems.set(0);
+                    this.isLoading.set(false);
+                },
+            });
     }
 
     private groupCategoriesByParent(categories: Category[]): CategoryGroup[] {
@@ -118,6 +130,13 @@ export default class ProductsGrid implements OnInit {
             parent,
             categories,
         }));
+    }
+
+    onPageChange(event: PaginatorState): void {
+        this.currentPage.set(event.pageIndex);
+        this.pageSize.set(event.pageSize);
+        this.loadProducts();
+        document.querySelector('mat-sidenav-content')?.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     onFiltersApply(): void {
