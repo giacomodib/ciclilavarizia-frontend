@@ -64,19 +64,19 @@
         </div>
         }
         @if (!isLoading()) {
-        <div class="responsive-grid">
+        <div class="responsive-grid border-b border-gray-200 pb-8">
             @for (product of products(); track product.productId) {
             <app-product-card [product]="product"></app-product-card>
             }
         </div>
         }
-
         @if (totalItems() > 0) {
-        <app-paginator [length]="totalItems()" [pageSize]="pageSize()" [pageIndex]="currentPage()"
-            (pageChange)="onPageChange($event)">
-        </app-paginator>
+        <div class="mt-4">
+            <app-paginator [length]="totalItems()" [pageSize]="pageSize()" [pageIndex]="currentPage()"
+                (pageChange)="onPageChange($event)">
+            </app-paginator>
+        </div>
         }
-
         @if (!isLoading() && products().length === 0) {
         <div class="text-center py-10 text-gray-500">No product found.</div>
         }
