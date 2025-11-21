@@ -1,128 +1,143 @@
-import { Component, Input, inject, OnInit, signal } from '@angular/core';
+import { Component, input, effect, untracked, computed, OnInit, inject, signal } from '@angular/core';
 import { CategoryGroup, Category, ProductListItemDto } from '../../shared/models/product.model';
-import { ProductService } from '../../shared/services/product';
+import { CommonModule } from '@angular/common';
+import { MatSidenavModule } from '@angular/material/sidenav';
+import { MatListModule } from '@angular/material/list';
+import { MatExpansionModule } from '@angular/material/expansion';
+import { MatIconModule } from '@angular/material/icon';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ProductCard } from '../../shared/components/product-card/product-card';
-
-interface ProductFilters {
-  searchTerm: string;
-  categoryId: string;
-  sortBy: string;
-}
+import { ProductService } from '../../shared/services/product';
+import { RouterLink } from '@angular/router';
 
 @Component({
-  selector: 'app-products-grid',
-  imports: [ProductCard],
-  templateUrl: './products-grid.html',
-  styleUrl: './products-grid.scss',
+    selector: 'app-products-grid',
+    standalone: true,
+    imports: [
+        CommonModule,
+        MatSidenavModule,
+        MatListModule,
+        MatExpansionModule,
+        MatIconModule,
+        MatProgressSpinnerModule,
+        RouterLink,
+        ProductCard
+    ],
+    templateUrl: './products-grid.html',
+    styleUrl: './products-grid.scss',
 })
 // default for lazy loading (check app.routes.ts)
 export default class ProductsGrid implements OnInit {
-  @Input()
-  set category(val: string) {
-    this.categorySignal.set(val);
-    this.currentPage.set(1);
-    this.loadProducts();
-  }
-
-  private productService = inject(ProductService);
-  private readonly PAGE_SIZE = 30;
-
-  categorySignal = signal<string>('');
-  products = signal<ProductListItemDto[]>([]);
-  categoryGroups = signal<CategoryGroup[]>([]);
-  currentPage = signal(1);
-  totalPages = signal(1);
-  isLoading = signal(true);
-  error = signal<string | null>(null);
-
-  filters = signal<ProductFilters>({
-    searchTerm: '',
-    categoryId: '',
-    sortBy: 'name',
-  });
-
-  ngOnInit(): void {
-    this.loadCategories();
-    this.loadProducts();
-  }
-
-  onPageChange(newPage: number): void {
-    this.currentPage.set(newPage);
-    this.loadProducts();
-  }
-
-  loadCategories(): void {
-    this.productService.getCategories().subscribe({
-      next: (categories) => {
-        const groupedArray = this.groupCategoriesByParent(categories);
-        this.categoryGroups.set(groupedArray);
-      },
-      error: (err) => console.error('Error fetching categories:', err),
+    private productService = inject(ProductService);
+    private readonly PAGE_SIZE = 30;
+    category = input<string>();
+    categoryValue = computed(() => this.category() || 'all');
+    currentCategoryName = computed(() => {
+        const val = this.categoryValue();
+        const list = this.allCategories();
+        if (val === 'all') return 'All Products';
+        
+        if (!isNaN(Number(val))) {
+            const found = list.find(c => c.categoryId.toString() === val);
+            return found ? found.name : val; 
+        }
+        return val; 
     });
-  }
 
-  private groupCategoriesByParent(categories: Category[]): CategoryGroup[] {
-    const groups = categories.reduce((acc, category) => {
-      const parent = category.parentCategoryName || 'Other';
-      (acc[parent] = acc[parent] || []).push(category);
-      return acc;
-    }, {} as Record<string, Category[]>);
+    products = signal<ProductListItemDto[]>([]);
+    allCategories = signal<Category[]>([]);     
+    categoryGroups = signal<CategoryGroup[]>([]); 
+    
+    totalItems = signal(0); 
+    currentPage = signal(1);
+    isLoading = signal(true);
 
-    return Object.entries(groups).map(([parent, categories]) => ({
-      parent,
-      categories,
-    }));
-  }
+    constructor() {
+        effect(() => {
+            const catVal = this.categoryValue();
+            if (this.allCategories().length > 0) {
+                untracked(() => {
+                    this.currentPage.set(1);
+                    this.loadProducts();
+                });
+            }
+        });
+    }
 
-  loadProducts(): void {
-    const urlValue = this.categorySignal();
-    const isNumeric = urlValue && !isNaN(Number(urlValue));
+    ngOnInit(): void {
+        this.loadCategories();
+    }
 
-    const categoryId = isNumeric ? urlValue : undefined;
-    const parentCategory = !isNumeric && urlValue !== 'all' ? urlValue : undefined;
+    loadCategories(): void {
+        this.productService.getCategories().subscribe({
+            next: (categories) => {
+                this.allCategories.set(categories);
+                this.categoryGroups.set(this.groupCategoriesByParent(categories));
+                this.loadProducts();
+            },
+            error: (err) => console.error(err)
+        });
+    }
 
-    this.productService
-      .getProducts(
-        this.currentPage(),
-        this.PAGE_SIZE,
-        this.filters().searchTerm,
-        categoryId,
-        parentCategory,
-        this.filters().sortBy
-      )
-      .subscribe({
-        next: (response) => {
-          this.products.set(response.items);
-          this.totalPages.set(response.totalPages);
-          this.currentPage.set(response.pageNumber);
-        },
-        error: (err) => {
-          console.error('Error fetching products:', err);
-          this.error.set('Failed to load products.');
-          this.products.set([]);
-        },
-      });
-  }
+    loadProducts(): void {
+        this.isLoading.set(true);
+        const urlValue = this.categoryValue();
+        const isNumeric = urlValue && !isNaN(Number(urlValue));
+        const categoryId = isNumeric ? urlValue : undefined;
+        const parentCategory = !isNumeric && urlValue !== 'all' ? urlValue : undefined;
 
-  onFiltersApply(): void {
-    this.currentPage.set(1);
-    this.loadProducts();
-  }
+        this.productService.getProducts(
+            this.currentPage(),
+            this.PAGE_SIZE,
+            '', 
+            categoryId,
+            parentCategory,
+            'name'
+        ).subscribe({
+            next: (res) => {
+                this.products.set(res.items);
+                this.totalItems.set(res.totalCount); 
+                this.isLoading.set(false);
+            },
+            error: () => {
+                this.products.set([]);
+                this.totalItems.set(0);
+                this.isLoading.set(false);
+            }
+        });
+    }
 
-  onSearchTermChange(term: string): void {
-    this.filters.update((f) => ({ ...f, searchTerm: term }));
-  }
+    private groupCategoriesByParent(categories: Category[]): CategoryGroup[] {
+        const groups = categories.reduce((acc, category) => {
+            const parent = category.parentCategoryName || 'Other';
+            (acc[parent] = acc[parent] || []).push(category);
+            return acc;
+        }, {} as Record<string, Category[]>);
 
-  onCategoryChange(categoryId: string): void {
-    this.filters.update((f) => ({ ...f, categoryId }));
-  }
+        return Object.entries(groups).map(([parent, categories]) => ({
+            parent,
+            categories,
+        }));
+    }
 
-  onSortByChange(sortBy: string): void {
-    this.filters.update((f) => ({ ...f, sortBy }));
-  }
+    onFiltersApply(): void {
+        this.currentPage.set(1);
+        this.loadProducts();
+    }
 
-  // addToCart(){
+    // onSearchTermChange(term: string): void {
+    //     this.filters.update((f) => ({ ...f, searchTerm: term }));
+    // }
 
-  // }
-  
+    // onCategoryChange(categoryId: string): void {
+    //     this.filters.update((f) => ({ ...f, categoryId }));
+    // }
+
+    // onSortByChange(sortBy: string): void {
+    //     this.filters.update((f) => ({ ...f, sortBy }));
+    // }
+
+    // addToCart(){
+
+    // }
 }
